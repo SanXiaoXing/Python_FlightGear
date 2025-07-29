@@ -1,0 +1,4 @@
+numpy~=1.24.3
+tensorflow~=2.13.0
+tqdm~=4.67.1
+flightgear_python~=2.0.2
