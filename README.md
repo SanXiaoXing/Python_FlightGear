@@ -1,6 +1,6 @@
 # Install
 
-```shell
+```bash
 pip install --no-index --find-links=wheels/ $(ls wheels/*.whl)
 ```
 

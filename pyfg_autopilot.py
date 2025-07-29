@@ -250,66 +250,234 @@ class FlightGearRealAutopilot:
         """初始化飞行状态"""
         print("\n阶段0: 初始化飞行状态")
         
-        # 设置飞机到起始位置
+        # 获取当前飞机位置
+        current_pos = self.get_current_position()
         departure = self.departure_point
-        self.set_position(departure[0], departure[1], departure[2], self.target_heading)
         
-        # 设置初始速度和引擎状态
+        if current_pos:
+            current_lat, current_lon, current_alt, current_heading = current_pos
+            print(f"当前飞机位置: {current_lat:.6f}, {current_lon:.6f}, {current_alt:.1f} 英尺")
+            print(f"目标起始位置: {departure[0]:.6f}, {departure[1]:.6f}, {departure[2]:.1f} 英尺")
+            
+            # 计算位置差距
+            distance_diff = self.calculate_distance(current_lat, current_lon, departure[0], departure[1])
+            alt_diff = abs(current_alt - departure[2])
+            
+            print(f"位置差距: {distance_diff:.2f} km, 高度差: {alt_diff:.1f} 英尺")
+            
+            # 如果位置差距较大，询问用户是否要移动飞机
+            if distance_diff > 1.0 or alt_diff > 100:  # 距离超过1km或高度差超过100英尺
+                print(f"\n警告：当前飞机位置与设定起点相距较远！")
+                print(f"建议选择：")
+                print(f"1. 将飞机移动到设定起点 (推荐)")
+                print(f"2. 使用当前位置作为起点")
+                
+                choice = input("请选择 (1/2，默认为1): ").strip()
+                
+                if choice == '2':
+                    # 使用当前位置更新起点
+                    self.departure_point = (current_lat, current_lon, current_alt)
+                    print(f"已更新起点为当前位置: {current_lat:.6f}, {current_lon:.6f}, {current_alt:.1f} 英尺")
+                    
+                    # 重新计算航向
+                    self.target_heading = self.calculate_heading(
+                        current_lat, current_lon, 
+                        self.destination_point[0], self.destination_point[1]
+                    )
+                    print(f"重新计算航向: {self.target_heading:.1f}°")
+                else:
+                    # 移动飞机到设定起点
+                    print("正在将飞机移动到设定起点...")
+                    self.set_position(departure[0], departure[1], departure[2], self.target_heading)
+                    time.sleep(2)  # 等待位置设置生效
+            else:
+                print("飞机位置与起点接近，无需调整")
+        else:
+            print("无法获取当前位置，将飞机设置到起点")
+            self.set_position(departure[0], departure[1], departure[2], self.target_heading)
+            time.sleep(2)
+        
+        # 设置初始状态（地面状态）
         try:
-            self.fg.set_prop('/controls/engines/engine[0]/throttle', 0.8)  # 设置油门
-            self.fg.set_prop('/controls/gear/gear-down', False)  # 收起起落架
-            self.fg.set_prop('/velocities/airspeed-kt', 150)  # 设置初始空速
-            print("飞机初始化完成")
+            print("\n设置飞机地面状态...")
+            
+            # 确保飞机在地面
+            self.fg.set_prop('/controls/engines/engine[0]/throttle', 0.0)  # 初始油门为0
+            self.fg.set_prop('/controls/gear/gear-down', True)  # 起落架放下
+            self.fg.set_prop('/velocities/airspeed-kt', 0)  # 初始空速为0
+            self.fg.set_prop('/controls/flight/flaps', 0.3)  # 设置起飞襟翼
+            
+            # 设置刹车确保飞机静止
+            self.fg.set_prop('/controls/gear/brake-left', 1.0)
+            self.fg.set_prop('/controls/gear/brake-right', 1.0)
+            
+            # 禁用自动驾驶（起飞时手动控制）
+            self.set_autopilot_properties(False)
+            
+            time.sleep(1)  # 等待设置生效
+            
+            # 释放刹车
+            self.fg.set_prop('/controls/gear/brake-left', 0.0)
+            self.fg.set_prop('/controls/gear/brake-right', 0.0)
+            
+            print("飞机初始化完成 - 地面待命状态")
+            
+            # 验证初始化状态
+            final_pos = self.get_current_position()
+            if final_pos:
+                lat, lon, alt, heading = final_pos
+                speed = self.fg.get_prop('/velocities/airspeed-kt')
+                print(f"最终位置: {lat:.6f}, {lon:.6f}, {alt:.1f} 英尺")
+                print(f"航向: {heading:.1f}°, 速度: {speed:.1f} 节")
+                
         except Exception as e:
             print(f"初始化飞机状态失败: {e}")
+            print("尝试基本设置...")
+            try:
+                self.fg.set_prop('/controls/engines/engine[0]/throttle', 0.0)
+                self.fg.set_prop('/controls/gear/gear-down', True)
+                self.fg.set_prop('/velocities/airspeed-kt', 0)
+            except:
+                print("基本设置也失败，请检查FlightGear连接")
             
     def _execute_takeoff(self):
-        """执行起飞阶段"""
+        """执行起飞阶段 - 真实的逐渐起飞过程"""
         print("\n阶段1: 起飞")
         self.flight_phase = 'takeoff'
         
-        # 计算起飞目标高度
-        target_alt = self.departure_point[2] + self.flight_plan['takeoff_altitude']
+        # 获取当前状态
+        current_alt = self.get_current_altitude()
+        target_alt = current_alt + self.flight_plan['takeoff_altitude']
+        print(f"当前高度: {current_alt:.1f} 英尺")
+        print(f"起飞目标高度: {target_alt:.1f} 英尺")
         
-        # 启用自动驾驶并设置起飞参数
-        self.set_autopilot_properties(True)
-        self.set_target_altitude(target_alt)
-        self.set_target_heading(self.target_heading)
-        self.set_target_speed(180)  # 起飞速度
-        
-        print(f"起飞目标高度: {target_alt} 英尺")
-        
-        # 获取起始高度
-        start_alt = self.get_current_altitude()
-        total_climb = target_alt - start_alt
-        
-        # 使用tqdm显示起飞进度
-        with tqdm(total=int(total_climb), desc="起飞进度", unit="英尺", 
-                    bar_format="{desc}: {percentage:3.0f}%|{bar}| {n:.0f}/{total:.0f} {unit} [{elapsed}<{remaining}]") as pbar:
+        try:
+            # 起飞前检查
+            print("\n起飞前检查...")
+            gear_down = self.fg.get_prop('/controls/gear/gear-down')
+            current_speed = self.fg.get_prop('/velocities/airspeed-kt')
+            throttle = self.fg.get_prop('/controls/engines/engine[0]/throttle')
             
-            last_alt = start_alt
+            print(f"起落架状态: {'放下' if gear_down else '收起'}")
+            print(f"当前速度: {current_speed:.1f} 节")
+            print(f"当前油门: {throttle:.2f}")
             
-            # 监控起飞过程
-            while True:
-                current_alt = self.get_current_altitude()
+            # 确保起飞前状态正确
+            if not gear_down:
+                print("放下起落架...")
+                self.fg.set_prop('/controls/gear/gear-down', True)
+                time.sleep(1)
+            
+            # 第一阶段：地面滑行加速
+            print("\n起飞阶段1: 地面滑行加速")
+            print("逐渐增加油门...")
+            
+            takeoff_speed_reached = False
+            max_attempts = 10  # 最大尝试次数
+            attempt = 0
+            
+            # 逐渐增加油门从0到0.9
+            for throttle in [0.2, 0.4, 0.6, 0.8, 0.9]:
+                attempt += 1
+                self.fg.set_prop('/controls/engines/engine[0]/throttle', throttle)
+                time.sleep(3)  # 增加等待时间让速度稳定
                 
-                # 更新进度条
-                progress = current_alt - start_alt
-                if progress > last_alt - start_alt:
-                    pbar.update(int(progress - (last_alt - start_alt)))
-                    last_alt = current_alt
+                current_speed = self.fg.get_prop('/velocities/airspeed-kt')
+                current_alt_check = self.get_current_altitude()
                 
-                # 设置进度条描述信息
-                pbar.set_description(f"起飞进度 (当前: {current_alt:.0f}英尺)")
+                print(f"油门: {throttle:.1f}, 当前速度: {current_speed:.1f} 节, 高度: {current_alt_check:.1f} 英尺")
                 
-                if current_alt >= target_alt:
-                    # 确保进度条达到100%
-                    pbar.update(int(total_climb - pbar.n))
+                # 当速度达到起飞速度时开始拉升
+                if current_speed >= 60:  # 起飞速度约60节
+                    print(f"达到起飞速度 {current_speed:.1f} 节，开始拉升！")
+                    takeoff_speed_reached = True
                     break
                     
-                time.sleep(2.0)
-        
-        print("起飞完成！")
+                # 如果已经离地，直接进入爬升阶段
+                if current_alt_check > current_alt + 10:
+                    print(f"飞机已离地 (高度: {current_alt_check:.1f} 英尺)，进入爬升阶段")
+                    takeoff_speed_reached = True
+                    break
+                    
+                if attempt >= max_attempts:
+                    print("达到最大尝试次数，强制进入爬升阶段")
+                    takeoff_speed_reached = True
+                    break
+            
+            # 如果没有达到起飞速度，使用备用方案
+            if not takeoff_speed_reached:
+                print("\n警告：未达到预期起飞速度，使用备用起飞方案")
+                self.fg.set_prop('/controls/engines/engine[0]/throttle', 1.0)  # 全油门
+                time.sleep(5)
+                current_speed = self.fg.get_prop('/velocities/airspeed-kt')
+                print(f"全油门后速度: {current_speed:.1f} 节")
+            
+            # 第二阶段：离地爬升
+            print("\n起飞阶段2: 离地爬升")
+            
+            # 收起起落架
+            self.fg.set_prop('/controls/gear/gear-down', False)
+            print("起落架已收起")
+            
+            # 启用自动驾驶进行爬升控制
+            self.set_autopilot_properties(True)
+            self.set_target_altitude(target_alt)
+            self.set_target_heading(self.target_heading)
+            self.set_target_speed(120)  # 初始爬升速度
+            
+            # 获取起始高度
+            start_alt = self.get_current_altitude()
+            total_climb = target_alt - start_alt
+            
+            # 使用tqdm显示起飞爬升进度
+            with tqdm(total=int(total_climb), desc="起飞爬升", unit="英尺", 
+                        bar_format="{desc}: {percentage:3.0f}%|{bar}| {n:.0f}/{total:.0f} {unit} [{elapsed}<{remaining}]") as pbar:
+                
+                last_alt = start_alt
+                
+                # 监控爬升过程
+                while True:
+                    current_alt = self.get_current_altitude()
+                    current_speed = self.fg.get_prop('/velocities/airspeed-kt')
+                    
+                    # 更新进度条
+                    progress = current_alt - start_alt
+                    if progress > last_alt - start_alt:
+                        pbar.update(int(progress - (last_alt - start_alt)))
+                        last_alt = current_alt
+                    
+                    # 设置进度条描述信息
+                    pbar.set_description(f"起飞爬升 (高度: {current_alt:.0f}英尺, 速度: {current_speed:.0f}节)")
+                    
+                    # 动态调整爬升速度
+                    climb_progress = (current_alt - start_alt) / total_climb
+                    if climb_progress > 0.5:  # 爬升过半后增加速度
+                        self.set_target_speed(150)
+                    
+                    if current_alt >= target_alt:
+                        # 确保进度条达到100%
+                        pbar.update(int(total_climb - pbar.n))
+                        break
+                        
+                    time.sleep(2.0)
+            
+            # 第三阶段：收起襟翼，完成起飞
+            print("\n起飞阶段3: 收起襟翼，完成起飞")
+            self.fg.set_prop('/controls/flight/flaps', 0.0)  # 收起襟翼
+            self.set_target_speed(180)  # 设置起飞后速度
+            
+            print("起飞完成！飞机已成功离地并达到起飞高度")
+            
+        except Exception as e:
+            print(f"起飞过程中出现错误: {e}")
+            # 紧急情况下确保基本设置
+            try:
+                self.set_autopilot_properties(True)
+                self.set_target_altitude(target_alt)
+                self.set_target_heading(self.target_heading)
+                self.set_target_speed(180)
+            except:
+                pass
         
     def _execute_climb(self):
         """执行爬升阶段"""
