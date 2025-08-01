@@ -14,7 +14,7 @@ from datetime import datetime
 import numpy as np
 
 class JSBSimDataCollector:
-    def __init__(self, aircraft_model="c172x", dt=0.01):
+    def __init__(self, aircraft_model="f16", dt=0.01):
         """
         初始化JSBSim数据采集器
         
@@ -273,7 +273,7 @@ def demo_basic_flight():
     print("=" * 40)
     
     # 创建数据收集器
-    collector = JSBSimDataCollector(aircraft_model="c172x")
+    collector = JSBSimDataCollector(aircraft_model="f16")
     
     # 初始化飞机
     if not collector.initialize_aircraft():
@@ -295,11 +295,11 @@ def demo_controlled_flight():
     print("🎮 带控制输入的飞行演示")
     print("=" * 40)
     
-    collector = JSBSimDataCollector(aircraft_model="c172x")
+    collector = JSBSimDataCollector(aircraft_model="f16")
     
     # 设置更合适的初始条件
     initial_conditions = {
-        'ic/h-sl-ft': 3000,        # 降低初始高度
+        'ic/h-sl-ft': 0,        # 降低初始高度
         'ic/long-gc-deg': -122.0,
         'ic/lat-gc-deg': 37.0,
         'ic/u-fps': 120,           # 增加初始速度
@@ -326,23 +326,23 @@ def demo_controlled_flight():
         # 修正的动态控制输入
         if sim_time < 3:
             # 起始阶段：建立稳定飞行
-            throttle = 0.75
-            elevator = 0.0  # 先保持水平
+            throttle = 0.85
+            elevator = -0.05  # 先保持水平
         elif sim_time < 8:
             # 爬升准备阶段：增加油门
-            throttle = 0.85
-            elevator = -0.05  # 轻微下压建立速度
+            throttle = 0.95
+            elevator = -0.1  # 轻微下压建立速度
         elif sim_time < 18:
             # 爬升阶段：拉杆爬升
-            throttle = 0.9
-            elevator = -0.2   # 负值表示拉杆（向上）
+            throttle = 1
+            elevator = -0.3   # 负值表示拉杆（向上）
         elif sim_time < 25:
             # 转平阶段：减小拉杆
-            throttle = 0.8
-            elevator = -0.05  # 轻微拉杆保持高度
+            throttle = 0.85
+            elevator = -0.1  # 轻微拉杆保持高度
         else:
             # 平飞阶段
-            throttle = 0.7
+            throttle = 0.75
             elevator = 0.0
         
         collector.set_controls(throttle=throttle, elevator=elevator)
@@ -358,8 +358,9 @@ def demo_controlled_flight():
             # 显示详细信息
             climb_rate = data['vertical_speed_fpm']
             pitch = data['pitch_deg']
-            print(f"时间: {sim_time:.1f}s, 高度: {data['altitude_ft']:.0f}ft, 速度: {data['airspeed_kt']:.1f}kt, 爬升率: {climb_rate:.0f}fpm, 俯仰: {pitch:.1f}°")
-    
+            altitude = data['altitude_ft']
+            speed = data['airspeed_kt']
+            print(f"时间: {sim_time:.1f}s, 高度: {altitude:.0f}ft, 速度: {speed:.1f}kt, 爬升率: {climb_rate:.0f}fpm, 俯仰: {pitch:.1f}°")
     collector.save_data_to_files()
     collector.analyze_data()
     
